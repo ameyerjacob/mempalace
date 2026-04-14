@@ -68,6 +68,12 @@ def cmd_mine(args):
     include_ignored = []
     for raw in args.include_ignored or []:
         include_ignored.extend(part.strip() for part in raw.split(",") if part.strip())
+    include_globs = []
+    for raw in args.include_glob or []:
+        include_globs.extend(part.strip() for part in raw.split(",") if part.strip())
+    exclude_globs = []
+    for raw in args.exclude_glob or []:
+        exclude_globs.extend(part.strip() for part in raw.split(",") if part.strip())
 
     if args.mode == "convos":
         from .convo_miner import mine_convos
@@ -93,6 +99,9 @@ def cmd_mine(args):
             dry_run=args.dry_run,
             respect_gitignore=not args.no_gitignore,
             include_ignored=include_ignored,
+            include_globs=include_globs,
+            exclude_globs=exclude_globs,
+            max_file_bytes=args.max_file_bytes,
         )
 
 
@@ -402,6 +411,24 @@ def main():
         action="append",
         default=[],
         help="Always scan these project-relative paths even if ignored; repeat or pass comma-separated paths",
+    )
+    p_mine.add_argument(
+        "--include-glob",
+        action="append",
+        default=[],
+        help="Only include files matching these project-relative glob patterns; repeat or pass comma-separated patterns",
+    )
+    p_mine.add_argument(
+        "--exclude-glob",
+        action="append",
+        default=[],
+        help="Exclude files matching these project-relative glob patterns; repeat or pass comma-separated patterns",
+    )
+    p_mine.add_argument(
+        "--max-file-bytes",
+        type=int,
+        default=0,
+        help="Skip files larger than this many bytes (0 = no size limit)",
     )
     p_mine.add_argument(
         "--agent",

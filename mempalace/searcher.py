@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 
 import chromadb
+from .embeddings import ef_kwargs
 
 logger = logging.getLogger("mempalace_mcp")
 
@@ -25,7 +26,7 @@ def search(query: str, palace_path: str, wing: str = None, room: str = None, n_r
     """
     try:
         client = chromadb.PersistentClient(path=palace_path)
-        col = client.get_collection("mempalace_drawers")
+        col = client.get_collection("mempalace_drawers", **ef_kwargs())
     except Exception:
         print(f"\n  No palace found at {palace_path}")
         print("  Run: mempalace init <dir> then mempalace mine <dir>")

@@ -16,6 +16,7 @@ from datetime import datetime
 from collections import defaultdict
 
 import chromadb
+from .embeddings import ef_kwargs
 
 READABLE_EXTENSIONS = {
     ".txt",
@@ -396,10 +397,11 @@ def chunk_text(content: str, source_file: str) -> list:
 def get_collection(palace_path: str):
     os.makedirs(palace_path, exist_ok=True)
     client = chromadb.PersistentClient(path=palace_path)
+    _ef = ef_kwargs()
     try:
-        return client.get_collection("mempalace_drawers")
+        return client.get_collection("mempalace_drawers", **_ef)
     except Exception:
-        return client.create_collection("mempalace_drawers")
+        return client.create_collection("mempalace_drawers", **_ef)
 
 
 def file_already_mined(collection, source_file: str) -> bool:
@@ -515,6 +517,9 @@ def scan_project(
     project_dir: str,
     respect_gitignore: bool = True,
     include_ignored: list = None,
+    include_globs: list = None,
+    exclude_globs: list = None,
+    max_file_bytes: int = 0,
 ) -> list:
     """Return list of all readable file paths."""
     project_path = Path(project_dir).expanduser().resolve()
@@ -522,6 +527,8 @@ def scan_project(
     active_matchers = []
     matcher_cache = {}
     include_paths = normalize_include_paths(include_ignored)
+    include_globs = [p.strip() for p in (include_globs or []) if str(p).strip()]
+    exclude_globs = [p.strip() for p in (exclude_globs or []) if str(p).strip()]
 
     for root, dirs, filenames in os.walk(project_path):
         root_path = Path(root)
@@ -552,6 +559,10 @@ def scan_project(
 
         for filename in filenames:
             filepath = root_path / filename
+            try:
+                relative = filepath.relative_to(project_path).as_posix()
+            except ValueError:
+                relative = filepath.as_posix()
             force_include = is_force_included(filepath, project_path, include_paths)
             exact_force_include = is_exact_force_include(filepath, project_path, include_paths)
 
@@ -561,6 +572,16 @@ def scan_project(
                 continue
             if respect_gitignore and active_matchers and not force_include:
                 if is_gitignored(filepath, active_matchers, is_dir=False):
+                    continue
+            if include_globs and not any(fnmatch.fnmatch(relative, pat) for pat in include_globs):
+                continue
+            if exclude_globs and any(fnmatch.fnmatch(relative, pat) for pat in exclude_globs):
+                continue
+            if max_file_bytes > 0:
+                try:
+                    if filepath.stat().st_size > max_file_bytes:
+                        continue
+                except OSError:
                     continue
             files.append(filepath)
     return files
@@ -580,6 +601,9 @@ def mine(
     dry_run: bool = False,
     respect_gitignore: bool = True,
     include_ignored: list = None,
+    include_globs: list = None,
+    exclude_globs: list = None,
+    max_file_bytes: int = 0,
 ):
     """Mine a project directory into the palace."""
 
@@ -593,6 +617,9 @@ def mine(
         project_dir,
         respect_gitignore=respect_gitignore,
         include_ignored=include_ignored,
+        include_globs=include_globs,
+        exclude_globs=exclude_globs,
+        max_file_bytes=max_file_bytes,
     )
     if limit > 0:
         files = files[:limit]
@@ -610,6 +637,12 @@ def mine(
         print("  .gitignore: DISABLED")
     if include_ignored:
         print(f"  Include: {', '.join(sorted(normalize_include_paths(include_ignored)))}")
+    if include_globs:
+        print(f"  Include globs: {', '.join(sorted(include_globs))}")
+    if exclude_globs:
+        print(f"  Exclude globs: {', '.join(sorted(exclude_globs))}")
+    if max_file_bytes > 0:
+        print(f"  Max file bytes: {max_file_bytes}")
     print(f"{'─' * 55}\n")
 
     if not dry_run:
@@ -631,13 +664,15 @@ def mine(
             agent=agent,
             dry_run=dry_run,
         )
-        if drawers == 0 and not dry_run:
-            files_skipped += 1
-        else:
-            total_drawers += drawers
-            room_counts[room] += 1
+        if drawers == 0:
             if not dry_run:
-                print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{drawers}")
+                files_skipped += 1
+            continue
+
+        total_drawers += drawers
+        room_counts[room] += 1
+        if not dry_run:
+            print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{drawers}")
 
     print(f"\n{'=' * 55}")
     print("  Done.")
